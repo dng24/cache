@@ -1,3 +1,6 @@
+/*
+ * Derek Ng, djng@wpi.edu
+ */
 #include "cachelab.h"
 
 int main()
