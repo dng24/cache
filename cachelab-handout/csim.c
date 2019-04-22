@@ -1,6 +1,8 @@
 /*
- * Derek Ng, djng@wpi.edu
+ * Derek Ng, djng@wpi.edu,
+ * Matt Edwards, maedwards@wpi.edu
  */
+
 #include "cachelab.h"
 #include <getopt.h>
 #include <stdlib.h>
@@ -10,167 +12,176 @@
 #include <string.h>
 
 struct CacheLine {
-	unsigned long tag;
-	int lastUsed;
-	bool valid;
+	unsigned long tag; //tag of a cache line
+	int lastUsed; //number of cache accesses since a specific cache line was used
+	bool valid; //valid bit of cache line
 };
 
 struct CacheData {
-	int s;
-	int E;
-	int b;
-	int hits;
-	int misses;
-	int evicts;
+	int s; //number of set bits in an address
+	int E; //number of cache lines in a set
+	int b; //number of block bits in an address
+	int hits; //total number of hits
+	int misses; //total number of misses
+	int evicts; //total number of evicts
 };
 
+/**
+ * Initializes the cache simulator.
+ * @param data A pointer to a struct containing data about the cache
+ * @return A pointer to an empty cache
+ */
 struct CacheLine* initCache(struct CacheData* data) {
-	unsigned long S = 1 << data->s;
-	int E = data->E;
-	struct CacheLine* cache = (struct CacheLine*) malloc(sizeof(struct CacheLine) * S * E);
-
-	//printf("asdfghjkl;%ld %d %ld %ld %ld\n", sizeof(struct CacheLine), E, S, sizeof(*cache), sizeof(struct CacheLine)* E* S);
-	struct CacheLine empty = {0, 0, false};
-	for(unsigned long i = 0; i < S; i++) {
+	unsigned long S = 1 << data->s; //number of sets in the cache
+	int E = data->E; //number of lines in a set
+	struct CacheLine* cache = (struct CacheLine*) malloc(sizeof(struct CacheLine) * S * E); //the cache
+	struct CacheLine empty = {0, 0, false}; //an empty line (to be put in the cache)
+	for(unsigned long i = 0; i < S; i++) { //populates the cache with empty lines
 		for(int j = 0; j < E; j++) {
-			*(cache + i * S + E) = empty;
+			*(cache + i * E + j) = empty;
 		}
 	}
 	return cache;
 }
 
-void replace(struct CacheLine* cache, unsigned long setIndex, int lineIndex, unsigned long tag) {
-	(cache + setIndex + lineIndex)->tag = tag;
-	(cache + setIndex + lineIndex)->lastUsed = 0;
-	(cache + setIndex + lineIndex)->valid = true;
+/**
+ * Replace a current line in the cache with a different line.
+ * @param cacheLine The line in the cache to replace
+ * @param tag The tag to replace the line with
+ */
+void replace(struct CacheLine* cacheLine, unsigned long tag) {
+	cacheLine->tag = tag; //set the tag
+	cacheLine->lastUsed = 0; //set last used to 0
+	cacheLine->valid = true; //set the valid bit to true
 }
 
-struct CacheLine* oneStep(struct CacheLine* cache, struct CacheData* data, unsigned long address) {
-	int tagSize = 64 - data->b - data->s;
-	unsigned long tag = address >> (data->b + data->s);
-	unsigned long setIndex = address << tagSize >> (tagSize + data->b);
-	//printf("%d %ld, %ld\n", tagSize, tag, setIndex);
+/**
+ * Accesses the cache once.
+ * @param cache A pointer to the cache
+ * @param data A pointer to a struct containing data about the cache
+ * @param address An address from a memory trace
+ */
+void oneStep(struct CacheLine* cache, struct CacheData* data, unsigned long address) {
+	int tagSize = 64 - data->b - data->s; //number of bits in the tag
+	unsigned long tag = address >> (data->b + data->s); //the contents of the tag
+	unsigned long setIndex = address << tagSize >> (tagSize + data->b); //the set number
+	for(int i = 0; i < data->E; i++) { //adds 1 to each line in the set, used for the LRU replacement policy
+		(cache + setIndex * data->E + i)->lastUsed++;
+	}
+
 	bool replaced = false;
-	for(int i = 0; !replaced && i < data->E; i++) {
-		if(((cache + setIndex + i)->tag == tag) && (cache + setIndex + i)->valid) {
+	for(int i = 0; !replaced && i < data->E; i++) { //loops through lines in the set until match found
+		//match if tag matches and is valid
+		if(((cache + setIndex * data->E + i)->tag == tag) && (cache + setIndex * data->E + i)->valid) {
 			data->hits++;
-			(cache + setIndex + i)->lastUsed = 0;
+			(cache + setIndex * data->E + i)->lastUsed = 0; //resets the last used counter
 			replaced = true;
 		}
 	}
-	if(!replaced) {
+	if(!replaced) { //a miss
 		data->misses++;
-		for(int j = 0; !replaced && j < data->E; j++) {
-			if((cache + setIndex + j)->valid == false) {
-				replace(cache, setIndex, j, tag);
+		for(int j = 0; !replaced && j < data->E; j++) { //loops through lines in the set until invalid line
+			if((cache + setIndex * data->E + j)->valid == false) { //invalid line if valid bit is not set
+				replace((cache + setIndex * data->E + j), tag); //replace invalid line with current line
 				replaced = true;
 			}
 		}
-		if(!replaced) {
+		if(!replaced) { //evict
 			data->evicts++;
-			int maxLastUsed = 0;
-			int maxLastUsedIndex = 0;
-			for(int j = 0; j < data->E; j++) {
-				if((cache + setIndex + j)->lastUsed > maxLastUsed) {
-					maxLastUsed = (cache + setIndex + j)->lastUsed;
+			int maxLastUsed = 0; //maximum number of times since a line in a set has been used
+			int maxLastUsedIndex = 0; //the line that has least been used
+			for(int j = 0; j < data->E; j++) { //finds the line least used
+				if((cache + setIndex * data->E + j)->lastUsed > maxLastUsed) { //new least used line
+					maxLastUsed = (cache + setIndex * data->E + j)->lastUsed;
 					maxLastUsedIndex = j;
 				}
 			}
-			replace(cache, setIndex, maxLastUsedIndex, tag);
+			replace((cache + setIndex * data->E + maxLastUsedIndex), tag); //replaces least used line with current line
 		}
 	}
-	return cache;
 }
 
+/**
+ * Prints proper usage of command line arguments.
+ */
+void usage(void) {
+	printf("Usage:\n");
+	printf("./csim -s <num> -E <num> -b <num> -t <file>\n");
+	printf("Options:\n");
+	printf("  -s <num>  Number of set index bits.\n");
+	printf("  -E <num>  Number of lines per set.\n");
+	printf("  -b <num>  Number of block offset bits.\n");
+	printf("  -t <file> Trace file.\n");
+}
 
-int main(int argc, char *argv[]) {
-	bool done = false;
-	int s = -1;
-	int E = -1;
-	int b = -1;
-	char* t = NULL;
-	int opt;
-	char* ptr = 0;
-	while ((opt = getopt(argc, argv, "s:E:b:t:")) != -1) {
+/**
+ * Main function.
+ * @param argc Number of arguments on the command line
+ * @param argv[] The argments on the command line
+ * @return 0
+ */
+int main(int argc, char* argv[]) {
+	bool done = false; //true if program should terminate
+	int s = -1; //number of set bits in an address
+	int E = -1; //number of lines in each set
+	int b = -1; //number of block bits an address
+	char* t = NULL; //file path of trace file
+	int opt = '\0'; // a command line option
+	char* ptr = 0; //pointer to get command line argument
+	while ((opt = getopt(argc, argv, "s:E:b:t:")) != -1) { //loops through command line until no args left
 		switch (opt) {
-		case 's':
+		case 's': //s option
 			s = (int) strtol(optarg, &ptr, 10);
 			break;
-		case 'E':
+		case 'E': //E option
 			E = (int) strtol(optarg, &ptr, 10);
 			break;
-		case 'b':
+		case 'b': //b option
 			b = (int) strtol(optarg, &ptr, 10);
 			break;
-		case 't':
+		case 't': //t option
 			t = optarg;
 			break;
-		default:
-			printf("-%c is not an argument.\n", opt);
-			printf("Usage:\n");
-			printf("-s <num> -E <num> -b <num> -t <file>\n");
+		default: //not valid option, exits program
+			usage();
 			done = true;
 		}
 	}
 
-	if(s == -1 || E == -1 || b == -1) {
-		printf("Missing argument\n");
-		printf("Usage:\n");
-		printf("-s <num> -E <num> -b <num> -t <file>\n");
+	if((s < 1 || E < 1 || b < 1) && !done) { //an argument is missing or incorrect, exits program
+		printf("Missing required command line argument\n");
+		usage();
 		done = true;
 	}
 
-	FILE* fp = fopen(t, "r");
-	if(fp == false) {
+	FILE* fp = fopen(t, "r"); //opens trace file
+	if(fp == false) { //cannot read the file
 		printf("Cannot read file\n");
 		done = true;
-	} else if(!done) {
-		struct CacheData data = {s, E, b, 0, 0, 0};
-		//unsigned long S = 1 << s;
-		struct CacheLine* cache = initCache(&data);
-		/*for(unsigned long i = 0; i < S; i++) {
-			for(int j = 0; j < E; j++) {
-				unsigned long tag = (cache + i * S + E)->tag;
-				int lastUsed = (cache + i * S + E)->lastUsed;
-				bool valid = (cache + i * S + E)->valid;
-				printf("S: %ld, E: %d, tag: %lx, lastUsed: %d, valid: %d\n", S, E, tag, lastUsed, valid);
-			}
-		}*/
+	} else if(!done) { //file successfully opened
+		struct CacheData data = {s, E, b, 0, 0, 0}; //initial data about cache
+		struct CacheLine* cache = initCache(&data); //initialize cache
 
-		char operation = '\0'; //the text in a row of the input file
-		unsigned long address = 0;
-		int size = 0;
-
+		char operation = '\0'; //an operation (I, S, L, M) from the trace file
+		unsigned long address = 0; //an address from the trace file
+		int size = 0; //a size from the trace file
 		while(fscanf(fp, " %c %lx,%d", &operation, &address, &size) != EOF) { //exits loop when end of the file is reached
-			//printf("%c %lx %d\n", operation, address, size);
 			switch(operation) {
-			case 'L':
+			case 'L': //L and S accesses the cache once each
 			case 'S':
 				oneStep(cache, &data, address);
 				break;
-			case 'M':
+			case 'M': //M accesses the cache twice
 				oneStep(cache, &data, address);
 				oneStep(cache, &data, address);
 				break;
-			default:
+			default: //I does nothing
 				break;
-			}
-			if(operation != 'I') {
-			printf("%c %lx %d\t", operation, address, size);
-			printf("%d ", data.hits);
-			printf("%d ", data.misses);
-			printf("%d\n", data.evicts);
 			}
 		}
-
-		fclose(fp);
-	    printSummary(data.hits, data.misses, data.evicts);
-	    free(cache);
+		fclose(fp); //close file
+	    printSummary(data.hits, data.misses, data.evicts); // print summary
+	    free(cache); //free memory
 	}
-
-	//printf("%d, %d, %d, %s %ld\n", s, E, b, t, sizeof(long));
-
-
     return 0;
 }
-

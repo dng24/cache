@@ -20,8 +20,15 @@ int is_transpose(int M, int N, int A[N][M], int B[M][N]);
  *     be graded. 
  */
 char transpose_submit_desc[] = "Transpose submission";
-void transpose_submit(int M, int N, int A[N][M], int B[M][N])
-{
+void transpose_submit(int M, int N, int A[N][M], int B[M][N]) {
+    int i, j, tmp;
+
+    for (i = 0; i < N; i++) {
+        for (j = 0; j < M; j++) {
+        	tmp = A[i][j];
+        	B[j][i] = tmp;
+        }
+    }
 }
 
 /* 
@@ -33,17 +40,40 @@ void transpose_submit(int M, int N, int A[N][M], int B[M][N])
  * trans - A simple baseline transpose function, not optimized for the cache.
  */
 char trans_desc[] = "Simple row-wise scan transpose";
-void trans(int M, int N, int A[N][M], int B[M][N])
-{
-    int i, j, tmp;
+void trans(int M, int N, int A[N][M], int B[M][N]) {
+    int i, j;
+    int tmpUL1;
+    int tmpUL2;
+    int tmpUR1;
+    int tmpUR2;
+    int tmpLL1;
+    int tmpLL2;
+    int tmpLR1;
+    int tmpLR2;
+    //for(int a = 0; a < 128; a++) {
 
-    for (i = 0; i < N; i++) {
-        for (j = 0; j < M; j++) {
-            tmp = A[i][j];
-            B[j][i] = tmp;
-        }
-    }    
+		for (i = 0; i < 16; i = i+2) {
+			for (j = 0; j < 16; j=j+2) {
+			    tmpUL1 = A[i][j];
+			    tmpUL2 = B[j][i];
+			    tmpUR1 = A[i][j + 1];
+			    tmpUR2 = B[j + 1][i];
+			    tmpLL1 = A[i + 1][j];
+			    tmpLL2 = B[j][i + 1];
+			    tmpLR1 = A[i + 1][j + i];
+			    tmpLR2 = B[j + 1][i + 1];
 
+			    A[i][j] = tmpUL2;
+			    B[j][i] = tmpUL1;
+			    A[i][j + 1] = tmpUR2;
+			    B[j + 1][i] = tmpUR1;
+			    A[i + 1][j] = tmpLL2;
+			    B[j][i + 1] = tmpLL1;
+			    A[i + 1][j + i] = tmpLR2;
+			    B[j + 1][i + 1] = tmpLR1;
+			}
+		}
+    //}
 }
 
 /*
@@ -53,8 +83,7 @@ void trans(int M, int N, int A[N][M], int B[M][N])
  *     performance. This is a handy way to experiment with different
  *     transpose strategies.
  */
-void registerFunctions()
-{
+void registerFunctions() {
     /* Register your solution function */
     registerTransFunction(transpose_submit, transpose_submit_desc); 
 
@@ -68,8 +97,7 @@ void registerFunctions()
  *     A. You can check the correctness of your transpose by calling
  *     it before returning from the transpose function.
  */
-int is_transpose(int M, int N, int A[N][M], int B[M][N])
-{
+int is_transpose(int M, int N, int A[N][M], int B[M][N]) {
     int i, j;
 
     for (i = 0; i < N; i++) {
