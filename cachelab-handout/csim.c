@@ -11,6 +11,8 @@
 #include <stdbool.h>
 #include <string.h>
 
+#define ADDRESS_SIZE 64 //size of trace address
+
 struct CacheLine {
 	unsigned long tag; //tag of a cache line
 	int lastUsed; //number of cache accesses since a specific cache line was used
@@ -62,7 +64,7 @@ void replace(struct CacheLine* cacheLine, unsigned long tag) {
  * @param address An address from a memory trace
  */
 void oneStep(struct CacheLine* cache, struct CacheData* data, unsigned long address) {
-	int tagSize = 64 - data->b - data->s; //number of bits in the tag
+	int tagSize = ADDRESS_SIZE - data->b - data->s; //number of bits in the tag
 	unsigned long tag = address >> (data->b + data->s); //the contents of the tag
 	unsigned long setIndex = address << tagSize >> (tagSize + data->b); //the set number
 	for(int i = 0; i < data->E; i++) { //adds 1 to each line in the set, used for the LRU replacement policy
